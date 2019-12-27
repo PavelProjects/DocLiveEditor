@@ -3,7 +3,6 @@
 
 class Message{
     public:
-        int port;
         int task;
         int status;
         char data[CHAR_LEN];
@@ -11,4 +10,10 @@ class Message{
         Message(){};
 };
 
+class OnStartMessage{
+    public:
+        char addres[20];
+        int port_pub;
+        int port_push;
 
+};

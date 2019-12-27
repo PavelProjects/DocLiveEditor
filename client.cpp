@@ -8,8 +8,13 @@
 #include "zmq.h"
 using namespace std;
 
-string first_connection = "tcp://localhost:16776";
+string first_addr_conn = "tcp://localhost:16776";
 string base_addr = "tcp://localhost:";
+int time_wait = 4000;
+
+void* context = zmq_ctx_new();
+void* publisher = zmq_socket(context, ZMQ_SUB);
+void* socket_push = zmq_socket(context, ZMQ_PUSH);
 
 void send_message(void* socket, Message mes){
     zmq_msg_t req;
@@ -41,57 +46,47 @@ string update_text(Message a, void* socket){
     return res;
 }
 
+void connect(void*);
+
 int main(int argc, char const *argv[]){
-    void* context = zmq_ctx_new();
-    void* connect_socket = zmq_socket(context, ZMQ_REQ);
-	void* server = zmq_socket(context, ZMQ_SUB);
-    void* socket_send = zmq_socket(context, ZMQ_PUSH);
-    string all_text;
+    connect(context);
 
-    if(0>zmq_connect(connect_socket, first_connection.c_str())){
-        cout<<strerror(errno)<<endl;
-        exit(1);
-    }
-
-    Message m , a;
-    m.task = 0;
-    m.status = 0;
-    send_message(connect_socket, m);
-    a = recv_message(connect_socket);
-
-    if(a.status != 0){
-        cout<<"Refused"<<endl;
-        exit(1);
-    }
-    zmq_close(connect_socket);
-
-    if(0>zmq_connect(socket_send, (base_addr+to_string(a.port)).c_str())){
-        cout<<(base_addr+to_string(a.task)).c_str()<<endl;
-        cout<<strerror(errno)<<endl;
-        exit(1);
-    }
-    m.status = 0;
-    m.task = 0;
-    send_message(socket_send, m);
-
-    if(0>zmq_connect(server, (base_addr+to_string(a.task)).c_str())){
-        cout<<(base_addr+to_string(a.task)).c_str()<<endl;
-        cout<<strerror(errno)<<endl;
-        exit(1);
-    }
-    zmq_setsockopt(server, ZMQ_SUBSCRIBE, 0, 0);
-    
-    cout<<"Subscribed on "<<(base_addr+to_string(a.task)).c_str()<<endl;
-    cout<<"Push socket on "<<(base_addr+to_string(a.port)).c_str()<<endl;
-
-    for(;;){
-        a = recv_message(server);
-        if(a.task == 1){ //recive text
-            all_text.clear();
-            all_text = update_text(a, server);
-        }
-    }
-
+    zmq_close(publisher);
+    zmq_close(socket_push);
     zmq_ctx_destroy(context);
+}
 
+void connect(void* context){
+    void* first_connect = zmq_socket(context, ZMQ_REQ);
+    if(0>zmq_connect(first_connect, first_addr_conn.c_str())){
+        cout<<"First connect :: "<<strerror(errno)<<endl;
+        exit(1);
+    }
+    zmq_setsockopt(first_connect, ZMQ_RCVTIMEO, &time_wait, sizeof(int));
+
+    OnStartMessage r, *a;
+    zmq_msg_t ans, req;
+    memcpy(r.addres,"192.168", 7);
+    zmq_msg_init_size(&req, sizeof(OnStartMessage));
+    memcpy(zmq_msg_data(&req), &r, sizeof(OnStartMessage));
+    zmq_msg_send(&req, first_connect, 0);
+    zmq_msg_close(&req);
+
+    zmq_msg_init(&ans);
+    zmq_msg_recv(&ans, first_connect, 0);
+    a = (OnStartMessage*) zmq_msg_data(&ans);
+    zmq_msg_close(&ans);
+    zmq_close(first_connect);
+
+    cout<<"pub="<<a->port_pub<<"::"<<"push="<<a->port_push<<endl;
+    if(0>zmq_connect(publisher, (base_addr+to_string(a->port_pub)).c_str())){
+        cout<<"Publisher connect :: "<<strerror(errno)<<endl;
+        exit(1);
+    }
+    zmq_setsockopt(publisher, ZMQ_SUBSCRIBE, "", 0);
+    if(0>zmq_connect(socket_push, (base_addr+to_string(a->port_push)).c_str())){
+        cout<<"Push connect :: "<<strerror(errno)<<endl;
+        exit(1);
+    }
+    cout<<"Connected"<<endl;
 }

@@ -10,17 +10,19 @@
 #include <sys/types.h>
 using namespace std;
 
-string addr_pull = "tcp://127.0.0.1:16776";
-int port_send = 7523;
+string addr_first_connect = "tcp://127.0.0.1:16776";
+int port_send_pull = 7523;
 int port_subscribe = 4040;
 
-vector<void *> sockets_pull;
+vector<string> users;
+
 void* context = zmq_ctx_new();
-void* create_connect = zmq_socket(context, ZMQ_REP);
+void* main_socket = zmq_socket(context, ZMQ_PUB);
+void* main_pull_socket = zmq_socket(context, ZMQ_PULL);
+
 
 void* connecting_port_listening(void * args);
 void* inf_listen_connect(void * args);
-void* connect_new(void* args);
 
 void send_text_to_sub(void* socket, string text){
     Message a;
@@ -40,19 +42,34 @@ void send_text_to_sub(void* socket, string text){
 
 int main(){
     pthread_t inf_thread;
-	void* main_socket = zmq_socket(context, ZMQ_PUB);
-    zmq_bind(main_socket, ("tcp://*:"+to_string(port_subscribe)).c_str());
+    if(0>zmq_bind(main_socket, ("tcp://*:"+to_string(port_subscribe)).c_str())){
+        cout<<"Main socket :: "<<strerror(errno)<<endl;
+        exit(1);
+    }
+    if(0>zmq_bind(main_pull_socket, ("tcp://*:"+to_string(port_send_pull)).c_str())){
+        cout<<"Main pull socket :: "<<strerror(errno)<<endl;
+        exit(1);
+    }
 
     pthread_create(&inf_thread, NULL, inf_listen_connect, context);
     pthread_detach(inf_thread);
 
-    string text;
+    int s;
     for(;;){
-        getline(cin, text);
-        send_text_to_sub(main_socket, text);
+        cin>>s;
+        if(s == 1){
+            for(int i=0; i<users.size(); i++){
+                cout<<i<<"::"<<users.at(i)<<endl;
+            }
+        }
     }
+    // for(;;){
+        // getline(cin, text);
+        // send_text_to_sub(main_socket, text);
+    // }
 
     zmq_close(main_socket);
+    zmq_close(main_pull_socket);
     zmq_ctx_destroy(context);
 }
 
@@ -68,48 +85,33 @@ void* inf_listen_connect(void * args){
 }
 
 void* connecting_port_listening(void* args){
-    if(0>zmq_bind(create_connect, addr_pull.c_str())){
-        cout<<"create connect::"<<strerror(errno)<<endl;
+    void* con = (void *) args;
+    void* first_connect = zmq_socket(con, ZMQ_REP);
+    string user_ip;
+    if(0>zmq_bind(first_connect, addr_first_connect.c_str())){
+        cout<<"First connect :: "<<strerror(errno)<<endl;
         exit(1);
     }
-    void* con =(void *) args;
-    pthread_t create_thr;
 
     zmq_msg_t req, ans;
+    OnStartMessage *r, a;
     zmq_msg_init(&req);
-    zmq_msg_recv(&req, create_connect, 0);
-    Message a, *m = (Message *) zmq_msg_data(&req);
+    zmq_msg_recv(&req, first_connect, 0);
+    r = (OnStartMessage *) zmq_msg_data(&req);
     zmq_msg_close(&req);
-
-    if(m->task == 0){
-        void* new_socket = zmq_socket(con, ZMQ_PULL); 
-        if(0>zmq_bind(new_socket, ("tcp://127.0.0.1:"+to_string(port_send)).c_str())){
-            cout<<"new socket::"<<strerror(errno)<<endl;
-            pthread_exit(NULL);
-            zmq_unbind(create_connect, addr_pull.c_str());
-        }
-        a.port = port_send;
-        a.task = port_subscribe;
-        a.status = 0;
-
-        zmq_msg_init_size(&ans,sizeof(Message));
-        memcpy(zmq_msg_data(&ans), &a, sizeof(Message));
-        zmq_msg_send(&ans, create_connect, 0);
+    if(r->addres != 0){
+        user_ip = r->addres;
+        a.port_pub = port_subscribe;
+        a.port_push = port_send_pull;
+        zmq_msg_init_size(&ans, sizeof(OnStartMessage));
+        memcpy(zmq_msg_data(&ans), &a, sizeof(OnStartMessage));
+        zmq_msg_send(&ans, first_connect, 0);
         zmq_msg_close(&ans);
-        zmq_msg_init(&ans);
-        zmq_msg_recv(&ans, new_socket, 0);
-        m = (Message *) zmq_msg_data(&ans);
-        zmq_msg_close(&ans);
-        if(m->task == 0 && m->status == 0){
-            cout<<"New connection"<<endl;
-            sockets_pull.push_back(new_socket);
-        }else{
-            zmq_unbind(new_socket, ("tcp://127.0.0.1:"+to_string(port_send)).c_str());
-            zmq_close(new_socket);
-        }
-        cout<<"Somebody connected"<<endl;
-        port_send++;
+
+        users.push_back(user_ip);
+        cout<<"New user connected ip: "<<user_ip<<endl;
     }
-    zmq_unbind(create_connect, addr_pull.c_str());
+    zmq_unbind(first_connect, addr_first_connect.c_str());
+    zmq_close(first_connect);
     return NULL;
 }
