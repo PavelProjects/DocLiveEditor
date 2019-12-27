@@ -1,5 +1,5 @@
 #include <string>
-#define CHAR_LEN 5
+#define CHAR_LEN 100
 
 class Message{
     public:
@@ -8,6 +8,7 @@ class Message{
         char data[CHAR_LEN];
         int length;
         Message(){};
+        ~Message(){};
 };
 
 class OnStartMessage{

@@ -6,8 +6,6 @@
 #include <vector>
 #include "zmq.h"
 #include "Message.hpp"
-#include <sys/wait.h>
-#include <sys/types.h>
 using namespace std;
 
 string addr_first_connect = "tcp://127.0.0.1:16776";
@@ -24,18 +22,25 @@ void* main_pull_socket = zmq_socket(context, ZMQ_PULL);
 void* connecting_port_listening(void * args);
 void* inf_listen_connect(void * args);
 
-void send_text_to_sub(void* socket, string text){
+void send_message(void* socket, Message mes){
+    zmq_msg_t req;
+    zmq_msg_init_size(&req, sizeof(Message));
+    memcpy(zmq_msg_data(&req), &mes, sizeof(Message));
+    zmq_msg_send(&req, socket, 0);
+    zmq_msg_close(&req);
+}
+
+void send_text_to_sub(void* socket, string* text){
     Message a;
     zmq_msg_t req;
-    a.length = text.length();
+    a.length = text->length();
     a.task = 1;
-    int prev = 0;
-    for(int i = 0; i <= a.length / CHAR_LEN + 1; i++){
-        memcpy(a.data, text.substr(prev, i*CHAR_LEN).c_str(), CHAR_LEN);
-        zmq_msg_init_size(&req, sizeof(Message));
-        memcpy(zmq_msg_data(&req), &a, sizeof(Message));
-        zmq_msg_send(&req, socket, 0);
-        zmq_msg_close(&req);
+    send_message(socket, a);
+    int prev=0;
+    for(int i=1; i <= text->length() / CHAR_LEN + 1; i++){
+        memset(a.data, 0, CHAR_LEN);
+        memcpy(a.data, text->substr(prev, i*CHAR_LEN).c_str(), text->length());
+        send_message(socket, a);
         prev = i*CHAR_LEN;
     }
 }
@@ -54,19 +59,11 @@ int main(){
     pthread_create(&inf_thread, NULL, inf_listen_connect, context);
     pthread_detach(inf_thread);
 
-    int s;
+    string text;
     for(;;){
-        cin>>s;
-        if(s == 1){
-            for(int i=0; i<users.size(); i++){
-                cout<<i<<"::"<<users.at(i)<<endl;
-            }
-        }
+        getline(cin, text);
+        send_text_to_sub(main_socket, &text);
     }
-    // for(;;){
-        // getline(cin, text);
-        // send_text_to_sub(main_socket, text);
-    // }
 
     zmq_close(main_socket);
     zmq_close(main_pull_socket);
@@ -76,8 +73,8 @@ int main(){
 void* inf_listen_connect(void * args){
     void* con =(void *) args;
     pthread_t conn_thread;
-    while(true){
         cout<<"Start listening"<<endl;
+    while(true){
         pthread_create(&conn_thread, NULL, connecting_port_listening, con);
         pthread_join(conn_thread,NULL);
     }
@@ -109,7 +106,10 @@ void* connecting_port_listening(void* args){
         zmq_msg_close(&ans);
 
         users.push_back(user_ip);
-        cout<<"New user connected ip: "<<user_ip<<endl;
+        cout<<"New user connected"<<endl;
+        for(int i=0; i<users.size(); i++){
+            cout<<i<<"::"<<users.at(i)<<endl;
+        }
     }
     zmq_unbind(first_connect, addr_first_connect.c_str());
     zmq_close(first_connect);

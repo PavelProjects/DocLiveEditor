@@ -26,22 +26,20 @@ void send_message(void* socket, Message mes){
 
 Message recv_message(void* socket){
     zmq_msg_t ans;
-    Message *res;
     zmq_msg_init(&ans);
     zmq_msg_recv(&ans, socket, 0);
-    res = (Message *) zmq_msg_data(&ans);
+    Message * res = (Message *) zmq_msg_data(&ans);
     zmq_msg_close(&ans);
     return (*res);
 }
 
-string update_text(Message a, void* socket){
-    int c = a.length / CHAR_LEN + 1;
+string update_text(int length, void* socket){
+    int c = length / CHAR_LEN + 1;
     string res;
-    cout<<a.length<<endl;
-    for(int i=0; i<c; i++){
-        cout<<a.data<<endl;  //какая то фигня с обработкой текста
-        res.append(a.data);
+    Message a;
+    for(int i=0; i < c; i++){
         a = recv_message(socket);
+        res.append(a.data);
     }
     return res;
 }
@@ -50,6 +48,17 @@ void connect(void*);
 
 int main(int argc, char const *argv[]){
     connect(context);
+    string text;
+
+    Message a;
+    for(;;){
+        a = recv_message(publisher);
+        if(a.task == 1){
+            text.clear();
+            text = update_text(a.length, publisher);
+            cout<<text<<endl;
+        }
+    }
 
     zmq_close(publisher);
     zmq_close(socket_push);
