@@ -49,67 +49,91 @@ int main(int argc, char const *argv[]){
     vector<string> full_text;
     string line;
     full_text.push_back(line);
-    int x = 0, y = 0, max_x, max_y, str_x = 0, str_y = 0;
-    getmaxyx(main_wind, max_y, max_x);
-    int key;
+    int x = 0, y = 0, max_x;
+    auto it = full_text.begin();
+    int key = 0;
     keypad(main_wind, TRUE);
     while(flag){
         move(y, x);
-        printw("[%d,%d], [%d, %d]",x ,y, str_x, str_y);
         key = wgetch(main_wind);
         if(key == KEY_RIGHT || key == KEY_LEFT || key == KEY_UP || key == KEY_DOWN || key == KEY_BACKSPACE){
 		    switch(key){
             	case KEY_UP:
 		    		if(y-1 >= 0){
                         y--;
-                        str_x = full_text.at(y).length()-1;
-                        x=0;
+                        if(x>=full_text.at(y).length()){
+                            x = full_text.at(y).length()-1;
+                        }
                     }
 		    		break;
 		    	case KEY_DOWN:
 		    		if(y+1 < full_text.size()){
                         y++;
-                        str_x = full_text.at(y).length()-1;
-                        x=0;
+                        if(x>=full_text.at(y).length() || full_text.at(y).length()-1 >= 0){
+                            x = full_text.at(y).length()-1;
+                        }
                     }
 		    		break;
                 case KEY_LEFT:
 		    		if(x-1 >= 0) x--;
 		    		break;
 		    	case KEY_RIGHT:
-		    		if(x+1 <= max_x && str_x >= x+1) x++;
-		    		break;                    
+                    if(full_text.at(y).back() == 10){
+		    		    if(x+1 <= max_x && full_text.at(y).length()-1 >= x+1) x++;
+                    }else{
+                        if(x+1 <= max_x && full_text.at(y).length() >= x+1) x++;
+                    }
+		    		break;
+                case KEY_BACKSPACE:
+                    if(x-1 >= 0){
+                        x--;
+                        full_text.at(y).erase(full_text.at(y).begin() + x);
+                    }else if(x == 0){
+                        if(y-1 >= 0){
+                            full_text.erase(full_text.begin()+y);
+                            y--;
+                            x = full_text.at(y).length()-1;
+                        }
+                    }
+                    break;                 
             }
         }else{
-            wclear(main_wind);
-            if(x == str_x){
-                full_text.at(y).push_back(key);
-            }else{
-                full_text.at(y).insert(full_text.at(y).begin() + x, key);
-            }
-            for(int i=0; i < full_text.size(); i++){
-                addstr(full_text.at(i).c_str());
-            }
             if(key == '\n'){
                 string n;
-                if(x == str_x){
-                    x=0;
-                    str_x=0;
-                    full_text.insert(full_text.begin()+y, n);
+                if(x == full_text.at(y).length()-1){
+                    x = 0;
+                    if(y == full_text.size()-1){
+                        full_text.push_back(n);
+                    }else{
+                        full_text.insert(full_text.begin()+y, n);
+                    }
                 }else{
-                    n = full_text.at(y).substr(x, str_x);
-                    full_text.at(y) = full_text.at(y).substr(0, x-1);
+                    n = full_text.at(y).substr(0, x);
+                    full_text.at(y) = full_text.at(y).substr(x, full_text.at(y).length());
+                    n.push_back(key);
                     full_text.insert(full_text.begin() + y, n);
-                    int p = str_x;
-                    x = str_x - x;
-                    str_x = p - x;
+                    x = 0;
                 }
                 y++;
             }else{
+                if(x >= full_text.at(y).length()-1){
+                    if(full_text.at(y).back() != 10){
+                        full_text.at(y).push_back(key);
+                    }else{
+                        full_text.at(y).insert(full_text.at(y).end() - 1, key);
+                    }
+                }else{
+                    full_text.at(y).insert(full_text.at(y).begin() + x, key);
+                }
                 x++;
-                str_x++;
-            }
+            }            
         }
+        wclear(main_wind);
+        for(int i=0; i < full_text.size(); i++){
+            addstr(full_text.at(i).c_str());
+        }
+        mvprintw(10, 10, "[%d,%d], [%d %d]",x , y, full_text.at(y).length(), full_text.at(y).back());
+        
     }
     getch();
     endwin();  
