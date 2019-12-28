@@ -18,9 +18,10 @@ void* context = zmq_ctx_new();
 void* main_socket = zmq_socket(context, ZMQ_PUB);
 void* main_pull_socket = zmq_socket(context, ZMQ_PULL);
 
-
 void* connecting_port_listening(void * args);
 void* inf_listen_connect(void * args);
+void* inf_listen_pull(void* args);
+void* pull_port_listener(void* args);
 
 void send_message(void* socket, Message mes){
     zmq_msg_t req;
@@ -28,6 +29,24 @@ void send_message(void* socket, Message mes){
     memcpy(zmq_msg_data(&req), &mes, sizeof(Message));
     zmq_msg_send(&req, socket, 0);
     zmq_msg_close(&req);
+}
+Message recv_message(void* socket){
+    zmq_msg_t ans;
+    zmq_msg_init(&ans);
+    zmq_msg_recv(&ans, socket, 0);
+    Message * res = (Message *) zmq_msg_data(&ans);
+    zmq_msg_close(&ans);
+    return (*res);
+}
+string update_text(int length, void* socket){
+    int c = length / CHAR_LEN + 1;
+    string res;
+    Message a;
+    for(int i=0; i < c; i++){
+        a = recv_message(socket);
+        res.append(a.data);
+    }
+    return res;
 }
 
 void send_text_to_sub(void* socket, string* text){
@@ -46,7 +65,7 @@ void send_text_to_sub(void* socket, string* text){
 }
 
 int main(){
-    pthread_t inf_thread;
+    pthread_t inf_connect_listener, inf_pull_listener;
     if(0>zmq_bind(main_socket, ("tcp://*:"+to_string(port_subscribe)).c_str())){
         cout<<"Main socket :: "<<strerror(errno)<<endl;
         exit(1);
@@ -56,8 +75,10 @@ int main(){
         exit(1);
     }
 
-    pthread_create(&inf_thread, NULL, inf_listen_connect, context);
-    pthread_detach(inf_thread);
+    pthread_create(&inf_connect_listener, NULL, inf_listen_connect, context);
+    pthread_detach(inf_connect_listener);
+    pthread_create(&inf_pull_listener, NULL, inf_listen_pull, main_pull_socket);
+    pthread_detach(inf_pull_listener);
 
     string text;
     for(;;){
@@ -71,11 +92,10 @@ int main(){
 }
 
 void* inf_listen_connect(void * args){
-    void* con =(void *) args;
     pthread_t conn_thread;
-        cout<<"Start listening"<<endl;
+    cout<<"Connecting port start listening"<<endl;
     while(true){
-        pthread_create(&conn_thread, NULL, connecting_port_listening, con);
+        pthread_create(&conn_thread, NULL, connecting_port_listening, args);
         pthread_join(conn_thread,NULL);
     }
     return NULL;
@@ -96,8 +116,8 @@ void* connecting_port_listening(void* args){
     zmq_msg_recv(&req, first_connect, 0);
     r = (OnStartMessage *) zmq_msg_data(&req);
     zmq_msg_close(&req);
-    if(r->addres != 0){
-        user_ip = r->addres;
+    if(r->name != 0){
+        user_ip = r->name;
         a.port_pub = port_subscribe;
         a.port_push = port_send_pull;
         zmq_msg_init_size(&ans, sizeof(OnStartMessage));
@@ -113,5 +133,28 @@ void* connecting_port_listening(void* args){
     }
     zmq_unbind(first_connect, addr_first_connect.c_str());
     zmq_close(first_connect);
+    return NULL;
+}
+
+void* inf_listen_pull(void* args){
+    pthread_t pthread;
+    void* socket = (void*) args;
+    cout<<endl<<"Pull port start listening"<<endl;
+    zmq_bind(socket, ("tcp://*:"+to_string(port_send_pull)).c_str());
+    while(true){
+        pthread_create(&pthread, NULL, pull_port_listener, socket);
+        pthread_join(pthread, NULL);
+    }
+    zmq_unbind(socket, ("tcp://*:"+to_string(port_send_pull)).c_str());
+}
+void* pull_port_listener(void* args){
+    void* socket = (void*) args;
+    Message m = recv_message(socket);
+    cout<<"From :: "<<m.from<<endl;
+    if(m.task == 2){
+        string text = update_text(m.length, socket);
+        cout<<"text for update :: "<<text<<endl;
+        send_text_to_sub(main_socket, &text);
+    }
     return NULL;
 }
