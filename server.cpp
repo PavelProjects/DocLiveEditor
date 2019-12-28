@@ -81,9 +81,14 @@ int main(){
     pthread_detach(inf_pull_listener);
 
     string text;
-    for(;;){
+    bool flag = true;
+    while(flag){
         getline(cin, text);
-        send_text_to_sub(main_socket, &text);
+        if(text == "!/exit"){
+            flag = false;
+        }else{
+            send_text_to_sub(main_socket, &text);
+        }
     }
 
     zmq_close(main_socket);
@@ -151,10 +156,20 @@ void* pull_port_listener(void* args){
     void* socket = (void*) args;
     Message m = recv_message(socket);
     cout<<"From :: "<<m.from<<endl;
-    if(m.task == 2){
-        string text = update_text(m.length, socket);
-        cout<<"text for update :: "<<text<<endl;
-        send_text_to_sub(main_socket, &text);
+    switch(m.task){
+        case -1:
+            cout<<"Disconnect"<<endl;
+            for(int i = 0; i<users.size(); i++){
+                if(users.at(i) == m.from){
+                    users.erase(users.begin() + i);
+                }
+            }
+        case 2:{
+            string text = update_text(m.length, socket);
+            cout<<"text for update :: "<<text<<endl;
+            send_text_to_sub(main_socket, &text);
+            break;
+        }
     }
     return NULL;
 }

@@ -5,7 +5,7 @@ class Message{
     public:
         char from[20];
         int task;
-        int status; //0-connect //1-update text //2-client changes
+        int status; //-1-disconnect//0-connect //1-update text //2-client changes
         char data[CHAR_LEN];
         int length;
         Message(){};
