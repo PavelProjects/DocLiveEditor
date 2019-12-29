@@ -11,9 +11,11 @@
 #include "Message.hpp"
 #include "zmq.h"
 using namespace std;
-#define TIME_OUT_SND 200
+#define ctrl(x)           ((x) & 0x1f)
+#define QUIT_CTRL "ctrl+o :: quit"
 
 string user_name;
+char file_name[20];
 string first_addr_conn = "tcp://localhost:16776";
 string base_addr = "tcp://localhost:";
 int time_wait = 5000;
@@ -34,6 +36,7 @@ void* socket_push = zmq_socket(context, ZMQ_PUSH);
 
 bool connect(void*);
 void send_changes(void*, string*);
+void send_msg(void*, Message);
 void send_start_msg(void* socket, OnStartMessage r);
 Message recv_message(void* );
 OnStartMessage recv_start_message(void*);
@@ -50,6 +53,7 @@ void add_changes(Message m);
 int main(int argc, char const *argv[]){
     cout<<"You name :: ";
     cin>>user_name;
+
     if(!connect(context)){
         cout<<"Can't connect to server"<<endl;
         return 0;
@@ -61,20 +65,26 @@ int main(int argc, char const *argv[]){
  
     main_wind = initscr(); 
     noecho();  
-  
+
     Message m;
     string nl;
     m.wch = 0;
-    int x = 0, y = 0, max_x;
+    int x = 0, y = 0, max_x = 0, row, column;
+    getmaxyx(main_wind, row, column);
     int key = 0;
-    keypad(main_wind, TRUE);
     bool flag = true;
+    keypad(main_wind, TRUE);
     while(flag){
         if(full_text.size() == 0) full_text.push_back(nl);
         wclear(main_wind);
         for(int i=0; i < full_text.size(); i++){
-            addstr(full_text.at(i).c_str());
+            for(int j=0; j < full_text.at(i).size(); j++){
+                wprintw(main_wind, "%c", full_text.at(i).at(j));
+            }
         }
+        wrefresh(main_wind);
+        mvwprintw(main_wind, row-1, column/2-strlen(QUIT_CTRL), QUIT_CTRL);
+        mvwprintw(main_wind, row-1, 0, "%s", file_name);
         move(y, x);
         key = wgetch(main_wind);
         if(key == KEY_RIGHT || key == KEY_LEFT || key == KEY_UP || key == KEY_DOWN || key == KEY_BACKSPACE){
@@ -100,12 +110,12 @@ int main(int argc, char const *argv[]){
 		    		break;
 		    	case KEY_RIGHT:
                     if(full_text.at(y).back() == 10){
-		    		    if(x+1 <= max_x && full_text.at(y).length()-1 >= x+1) x++;
+		    		    if(full_text.at(y).length()-1 >= x+1) x++;
                     }else{
-                        if(x+1 <= max_x && full_text.at(y).length() >= x+1) x++;
+                        if(full_text.at(y).length() >= x+1) x++;
                     }
 		    		break;
-                case KEY_BACKSPACE:{
+                case KEY_BACKSPACE:
                     if(x-1 >= 0){
                         x--;
                         m.where_x = x;
@@ -125,9 +135,17 @@ int main(int argc, char const *argv[]){
                     m.task = UPDATE_TEXT;
                     add_to_queue( m);
                     i_send = true;  
-                    break;
-                }
+                    break;                 
             }
+        }else if(key == ctrl('o')){
+            m.task = DISCONNECT;
+            void* socket_push = zmq_socket(context, ZMQ_PUSH);
+            if(0>zmq_connect(socket_push, (base_addr+to_string(push_port)).c_str())){
+                cout<<strerror(errno)<<endl;
+            }
+            send_msg(socket_push, m);
+            zmq_close(socket_push);
+            flag = false;
         }else{
             mute_text.lock();
             m.where_x = x;
@@ -138,10 +156,9 @@ int main(int argc, char const *argv[]){
                 string line;
                 full_text.push_back(line);
             }
-            if(key == '\n' || key == '.'){
+            if(key == '\n'){
                 string n;
                 if(x == full_text.at(y).length()-1){
-                    x = 0;
                     if(y == full_text.size()-1){
                         full_text.push_back(n);
                     }else{
@@ -153,9 +170,8 @@ int main(int argc, char const *argv[]){
                     full_text.at(y) = full_text.at(y).substr(x, full_text.at(y).length());
                     n.push_back(key);
                     full_text.insert(full_text.begin() + y, n);
-                    x = 0;
+                    if(key == '\n') x = 0;
                 }
-                y++;
             }else{
                 if(x >= full_text.at(y).length()-1){
                     if(full_text.at(y).back() != 10){
@@ -176,11 +192,12 @@ int main(int argc, char const *argv[]){
             i_send = true;  
         }
     }
+    wclear(main_wind);
+    mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
     getch();
-    endwin();    
-
+    endwin();
+    cout<<"Exit"<<endl;
     zmq_close(publisher);
-    zmq_close(socket_push);
     zmq_ctx_destroy(context);
     return 0;
 }
@@ -222,7 +239,8 @@ bool connect(void* context){
         exit(1);
     }else{
         Message m = recv_message(socket_pill);
-        cout<<m.size<<endl;
+        memcpy(file_name, m.data, strlen(m.data));
+        cout<<"Loading file "<<file_name<<endl;
         int size = m.size, length;
         for(int i=0; i<size ; i++){
             m = recv_message(socket_pill);
@@ -234,10 +252,11 @@ bool connect(void* context){
                 full_text.at(i).append(m.data);
             }
         }
+        cout<<"Done"<<endl;
     }
     zmq_close(socket_pill);
 
-    sleep(2);
+    sleep(1);
     return true;
 }
 
@@ -250,11 +269,18 @@ Message recv_message(void* socket){
     zmq_msg_close(&ans);
     return (*res);
 }
+void send_msg(void* socket, Message r){
+    zmq_msg_t req;
+    memcpy(r.from, user_name.c_str(), user_name.size());
+    zmq_msg_init_size(&req, sizeof(Message));
+    memcpy(zmq_msg_data(&req), &r, sizeof(Message));
+    zmq_msg_send(&req, socket, 0);
+    zmq_msg_close(&req);
+}
 OnStartMessage recv_start_message(void* socket){
     zmq_msg_t ans;
     zmq_msg_init(&ans);
     zmq_msg_recv(&ans, socket, 0);
-    cout<<"recv"<<endl;;
     OnStartMessage * res = (OnStartMessage *) zmq_msg_data(&ans);
     zmq_msg_close(&ans);
     return (*res);
@@ -264,7 +290,6 @@ void send_start_msg(void* socket, OnStartMessage r){
     memcpy(r.name, user_name.c_str(), user_name.size());
     zmq_msg_init_size(&req, sizeof(OnStartMessage));
     memcpy(zmq_msg_data(&req), &r, sizeof(OnStartMessage));
-    cout<<"send"<<endl;;
     zmq_msg_send(&req, socket, 0);
     zmq_msg_close(&req);
 }

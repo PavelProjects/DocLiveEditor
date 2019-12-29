@@ -78,6 +78,7 @@ void send_text(){
     m.task = FULL_TEXT;
     m.size = full_text.size();
     memset(m.data, 0, CHAR_LEN);
+    memcpy(m.data, file_path.c_str(), file_path.length());
     send_message(socket_push, m);
     int prev = 0;
     for(int i = 0; i < full_text.size(); i++){
@@ -210,10 +211,13 @@ bool write_to_file(){
 }
 
 int main(int argc, char* argv[]){
-    cout<<argc<<"::"<<argv[1]<<endl;
+    cout<<argv[1]<<endl;
     if(argc==2){
         file_path = argv[1];
         load_from_file();
+    }else{
+        cout<<"./server /path/to/file"<<endl;
+        return 0;
     }
 
     pthread_t inf_connect_listener, inf_pull_listener;
