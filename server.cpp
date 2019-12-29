@@ -155,7 +155,7 @@ void* inf_listen_pull(void* args){
 void* pull_port_listener(void* args){
     void* socket = (void*) args;
     Message m = recv_message(socket);
-    cout<<"From :: "<<m.from<<endl;
+    cout<<"From :: "<<m.from<<"::"<<m.task<<endl;
     switch(m.task){
         case -1:
             cout<<"Disconnect"<<endl;
@@ -165,10 +165,10 @@ void* pull_port_listener(void* args){
                 }
             }
         case 2:{
-            string text = update_text(m.length, socket);
-            cout<<"text for update :: "<<text<<endl;
-            send_text_to_sub(main_socket, &text);
-            break;
+            string text = update_text(m.length, socket); //необходимо добавить очередь входящих сообщений
+            cout<<"text for update :: "<<text<<endl; //все изменения сначала необходимо сохранить у себя, потом отослать остальным, потом удалить это сообщение из очереди
+            send_text_to_sub(main_socket, &text); //вариант передачи изменений : хранить текст как массив строк с предложениями. Изменнения отправлять в виде номера изменного 
+            break; //символа и собственно измененный символ
         }
     }
     return NULL;
