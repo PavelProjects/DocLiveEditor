@@ -14,10 +14,15 @@ using namespace std;
 #define ctrl(x)           ((x) & 0x1f)
 #define QUIT_CTRL "ctrl+o :: quit"
 
-string user_name;
+char ENG [] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+char RU [] = "АБВГДЭЕЖЗЫИКЛМНОПРСТУФХЦЧШЩЬЪЮЯЁaбвгдеёжзыиклмнопрстуфхцчшщьъюяё";
+char SYMB [] = "!@#$%^&*()_+?><:{}|~`\?\"'";
+
+string user_ip;
 char file_name[20];
-string first_addr_conn = "tcp://localhost:16776";
-string base_addr = "tcp://localhost:";
+string first_port_conn = ":16776";
+string base_addr = "tcp://";
+string server_addr;
 int time_wait = 5000;
 int push_port = 0;
 double sent_time_wait = 1;
@@ -51,9 +56,18 @@ void add_to_queue(Message);
 void add_changes(Message m);
 
 int main(int argc, char const *argv[]){
-    cout<<"You name :: ";
-    cin>>user_name;
-
+    bool flag = true;
+    while(flag){
+        cout<<"Server address :: ";
+        getline(cin, server_addr);
+        cout<<"You ip :: ";
+        getline(cin, user_ip);
+        if(server_addr.length() > 0 && user_ip.length() >0){
+            flag = false;
+        }else{
+            cout<<"Wrong input!"<<endl;
+        }
+    }
     if(!connect(context)){
         cout<<"Can't connect to server"<<endl;
         return 0;
@@ -71,15 +85,18 @@ int main(int argc, char const *argv[]){
     m.wch = 0;
     int x = 0, y = 0, max_x = 0, row, column;
     getmaxyx(main_wind, row, column);
-    int key = 0;
-    bool flag = true;
+    int key = 0; char buf;
     keypad(main_wind, TRUE);
+    flag = true;
     while(flag){
         if(full_text.size() == 0) full_text.push_back(nl);
         wclear(main_wind);
         for(int i=0; i < full_text.size(); i++){
             for(int j=0; j < full_text.at(i).size(); j++){
-                wprintw(main_wind, "%c", full_text.at(i).at(j));
+                buf = full_text.at(i).at(j);
+                if(strchr(RU, buf) || strchr(ENG, buf) || strchr(SYMB, buf)){
+                    wprintw(main_wind, "%c", buf);
+                }
             }
         }
         wrefresh(main_wind);
@@ -140,7 +157,7 @@ int main(int argc, char const *argv[]){
         }else if(key == ctrl('o')){
             m.task = DISCONNECT;
             void* socket_push = zmq_socket(context, ZMQ_PUSH);
-            if(0>zmq_connect(socket_push, (base_addr+to_string(push_port)).c_str())){
+            if(0>zmq_connect(socket_push, (base_addr+server_addr+":"+to_string(push_port)).c_str())){
                 cout<<strerror(errno)<<endl;
             }
             send_msg(socket_push, m);
@@ -204,14 +221,14 @@ int main(int argc, char const *argv[]){
 
 bool connect(void* context){
     void* first_connect = zmq_socket(context, ZMQ_REQ);
-    if(0>zmq_connect(first_connect, first_addr_conn.c_str())){
+    if(0>zmq_connect(first_connect, (base_addr+server_addr+first_port_conn).c_str())){
         cout<<"First connect :: "<<strerror(errno)<<endl;
         exit(1);
     }
     zmq_setsockopt(first_connect, ZMQ_RCVTIMEO, &time_wait, sizeof(int));
 
     OnStartMessage r, a;
-    memcpy(r.name, user_name.c_str(), user_name.size());
+    memcpy(r.name, user_ip.c_str(), user_ip.size());
     send_start_msg(first_connect, r);
     a = recv_start_message(first_connect);
 
@@ -219,13 +236,13 @@ bool connect(void* context){
         return false;
     }
     cout<<"pub="<<a.port_pub<<"::"<<"push="<<a.port_push<<endl;
-    if(0>zmq_connect(publisher, (base_addr+to_string(a.port_pub)).c_str())){
+    if(0>zmq_connect(publisher, (base_addr+server_addr+":"+to_string(a.port_pub)).c_str())){
         cout<<"Publisher connect :: "<<strerror(errno)<<endl;
         exit(1);
     }
     zmq_setsockopt(publisher, ZMQ_SUBSCRIBE, "", 0);
     push_port = a.port_push;
-    if(0>zmq_connect(socket_push, (base_addr+to_string(push_port)).c_str())){
+    if(0>zmq_connect(socket_push, (base_addr+server_addr+":"+to_string(push_port)).c_str())){
         cout<<"Push connect :: "<<strerror(errno)<<endl;
         exit(1);
     }
@@ -271,7 +288,7 @@ Message recv_message(void* socket){
 }
 void send_msg(void* socket, Message r){
     zmq_msg_t req;
-    memcpy(r.from, user_name.c_str(), user_name.size());
+    memcpy(r.from, user_ip.c_str(), user_ip.size());
     zmq_msg_init_size(&req, sizeof(Message));
     memcpy(zmq_msg_data(&req), &r, sizeof(Message));
     zmq_msg_send(&req, socket, 0);
@@ -287,7 +304,7 @@ OnStartMessage recv_start_message(void* socket){
 }
 void send_start_msg(void* socket, OnStartMessage r){
      zmq_msg_t req;
-    memcpy(r.name, user_name.c_str(), user_name.size());
+    memcpy(r.name, user_ip.c_str(), user_ip.size());
     zmq_msg_init_size(&req, sizeof(OnStartMessage));
     memcpy(zmq_msg_data(&req), &r, sizeof(OnStartMessage));
     zmq_msg_send(&req, socket, 0);
@@ -386,11 +403,11 @@ void* send_from_queue(void* args){
         if(pid == 0){
             void* context = zmq_ctx_new();
             void* socket_push = zmq_socket(context, ZMQ_PUSH);
-            if(0>zmq_connect(socket_push, (base_addr+to_string(push_port)).c_str())){
+            if(0>zmq_connect(socket_push, (base_addr+server_addr+":"+to_string(push_port)).c_str())){
                 cout<<strerror(errno)<<endl;
             }
             zmq_msg_t req;
-            memcpy(m.from, user_name.c_str(), user_name.size());
+            memcpy(m.from, user_ip.c_str(), user_ip.size());
             zmq_msg_init_size(&req, sizeof(Message));
             memcpy(zmq_msg_data(&req), &m, sizeof(Message));
             zmq_msg_send(&req, socket_push, 0);

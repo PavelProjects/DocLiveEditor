@@ -16,6 +16,7 @@ string addr_first_connect = "tcp://*:16776";
 string file_path = "./united.txt";
 int port_send_pull = 7523;
 int port_subscribe = 4040;
+int time_wait = 10000;
 mutex mute_pr_state;
 bool pr_state = false;
 mutex mute_save_state;
@@ -70,9 +71,12 @@ OnStartMessage on_start_recv(void* socket){
     return (*res);
 }
 
-void send_text(){
+void* send_text(void* args){
     void* socket_push = zmq_socket(context, ZMQ_PUSH);
-    zmq_connect(socket_push, "tcp://localhost:2020");
+    mute_users.lock();
+    zmq_connect(socket_push, ("tcp://"+users.back()+":2020").c_str());
+    mute_users.unlock();
+    zmq_setsockopt(socket_push, ZMQ_RCVTIMEO, &time_wait, sizeof(int));
     mute_text.lock();
     Message m;
     m.task = FULL_TEXT;
@@ -93,6 +97,7 @@ void send_text(){
     }
     mute_text.unlock();
     zmq_close(socket_push);
+    return NULL;
 }
 
 void update_text(Message m){
@@ -263,12 +268,13 @@ int main(int argc, char* argv[]){
 }
 
 void* inf_listen_connect(void * args){
-    pthread_t conn_thread;
+    pthread_t conn_thread, thsnd;
     cout<<"Connecting port start listening"<<endl;
     while(true){
         pthread_create(&conn_thread, NULL, connecting_port_listening, args);
         pthread_join(conn_thread,NULL);
-        send_text();
+        pthread_create(&thsnd, NULL, send_text, NULL);
+        pthread_detach(thsnd);
     }
     return NULL;
 }
