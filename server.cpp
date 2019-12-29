@@ -5,15 +5,21 @@
 #include <pthread.h>
 #include <vector>
 #include <mutex>
+#include <iostream>
+#include <fstream>
 #include "zmq.h"
 #include "Message.hpp"
 using namespace std;
+#define SAVE_TIME_WAIT 5
 
 string addr_first_connect = "tcp://*:16776";
+string file_path = "./united.txt";
 int port_send_pull = 7523;
 int port_subscribe = 4040;
 mutex mute_pr_state;
 bool pr_state = false;
+mutex mute_save_state;
+bool save_state = false;
 
 mutex mute_users;
 vector<string> users;
@@ -31,6 +37,7 @@ void* inf_listen_connect(void * args);
 void* inf_listen_pull(void* args);
 void* pull_port_listener(void* args);
 void* process_message(void* args);
+void* wait_and_save(void* args);
 
 void send_message(void* socket, Message mes){
     zmq_msg_t req;
@@ -70,15 +77,16 @@ void send_text(){
     Message m;
     m.task = FULL_TEXT;
     m.size = full_text.size();
+    memset(m.data, 0, CHAR_LEN);
     send_message(socket_push, m);
     int prev = 0;
     for(int i = 0; i < full_text.size(); i++){
         m.size = full_text.at(i).size();
+        memset(m.data, 0, CHAR_LEN);
         send_message(socket_push, m);
         for(int j=1; j <= full_text.at(i).size() / CHAR_LEN + 1; j++){
             memcpy(m.data, full_text.at(i).substr(prev, j*CHAR_LEN).c_str(),  full_text.at(i).substr(prev, j*CHAR_LEN).size());
             send_message(socket_push, m);
-            cout<<m.data<<endl;
             prev = i*CHAR_LEN;
         }
     }
@@ -157,7 +165,57 @@ void update_text(Message m){
     mute_text.unlock();
 }
 
-int main(){
+void load_from_file(){
+    mute_text.lock();
+    ifstream file(file_path, ios::in|ios::binary|ios::ate);
+    if(file.is_open()){
+        string n;
+        full_text.push_back(n);
+        int size = file.tellg();
+        char* lod = new char [size];
+        file.seekg (0, ios::beg);
+        file.read (lod, size);
+        file.close();
+        cout<<"Loaded"<<endl;
+        for(int i=0; i < size; i++){
+            full_text.back().push_back(lod[i]);
+            if((lod[i] == '\n' || lod[i] == '.') && i+1 < size){ 
+                full_text.push_back(n);
+            }
+        }
+        delete[] lod;
+    }else{
+        cout<<"Can't open file!"<<endl;
+    }
+    mute_text.unlock();
+}
+
+bool write_to_file(){
+    ofstream file;
+    file.open(file_path);
+    if(file.is_open()){
+        mute_text.lock();
+        for(int i = 0; i< full_text.size(); i++){
+            file<<full_text.at(i);
+        }
+        mute_text.unlock();
+        file<<'\0';
+        file.close();
+        return true;
+    }else{
+        cout<<"Can't open file for write!"<<endl;
+        return false;
+    }
+    return false;
+}
+
+int main(int argc, char* argv[]){
+    cout<<argc<<"::"<<argv[1]<<endl;
+    if(argc==2){
+        file_path = argv[1];
+        load_from_file();
+    }
+
     pthread_t inf_connect_listener, inf_pull_listener;
     if(0>zmq_bind(main_pub_socket, ("tcp://*:"+to_string(port_subscribe)).c_str())){
         cout<<"Main socket :: "<<strerror(errno)<<endl;
@@ -181,11 +239,18 @@ int main(){
     while(flag){
         getline(cin, text);
         if(text == "!/exit"){
+            write_to_file();
             flag = false;
         }
-        Message m;
-        m.task = UPDATE_TEXT;
-        send_message(main_pub_socket, m);
+        if(text == "show"){
+            for(int i = 0; i< full_text.size(); i++){
+                cout<<full_text.at(i);
+            }
+            cout<<endl;
+        }
+        if(text == "save"){
+            write_to_file();
+        }
     }
 
     zmq_close(main_pub_socket);
@@ -265,6 +330,16 @@ void* pull_port_listener(void* args){
     return NULL;
 }
 
+void* wait_and_save(void* args){
+    sleep(SAVE_TIME_WAIT);
+    cout<<"---saved---"<<endl;
+    write_to_file();
+    mute_save_state.lock();
+    save_state = false;
+    mute_save_state.unlock();
+    return NULL;
+}
+
 void* process_message(void* args){
     void* socket = (void*) args;
     bool flag = true;
@@ -280,10 +355,19 @@ void* process_message(void* args){
                 }
                 mute_users.unlock();
                 break;
-            case UPDATE_TEXT:
+            case UPDATE_TEXT:{
                 update_text(m);
+                if(!save_state){
+                    pthread_t pth;
+                    pthread_create(&pth, NULL, wait_and_save, NULL);
+                    pthread_detach(pth);
+                    mute_save_state.lock();
+                    save_state = true;
+                    mute_save_state.unlock();
+                }
                 send_message(socket, m);
                 break;
+            }
         }
 
         mute_pull.lock();

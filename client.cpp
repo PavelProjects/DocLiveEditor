@@ -138,7 +138,7 @@ int main(int argc, char const *argv[]){
                 string line;
                 full_text.push_back(line);
             }
-            if(key == '\n'){
+            if(key == '\n' || key == '.'){
                 string n;
                 if(x == full_text.at(y).length()-1){
                     x = 0;

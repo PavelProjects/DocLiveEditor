@@ -9,6 +9,7 @@
         "initializer_list": "cpp",
         "utility": "cpp",
         "cerrno": "cpp",
-        "typeinfo": "cpp"
+        "typeinfo": "cpp",
+        "writetofile.c": "cpp"
     }
 }
