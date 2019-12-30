@@ -47,6 +47,7 @@ Message recv_message(void* );
 OnStartMessage recv_start_message(void*);
 int size, length;
 bool first_start = true;
+bool main_loop = true;
 
 void* inf_pub_listener(void*);
 void* publisher_listener(void*);
@@ -56,14 +57,13 @@ void add_to_queue(Message);
 void add_changes(Message m);
 
 int main(int argc, char const *argv[]){
-    bool flag = true;
-    while(flag){
+    while(main_loop){
         cout<<"Server address :: ";
         getline(cin, server_addr);
         cout<<"You ip :: ";
         getline(cin, user_ip);
         if(server_addr.length() > 0 && user_ip.length() >0){
-            flag = false;
+            main_loop = false;
         }else{
             cout<<"Wrong input!"<<endl;
         }
@@ -87,8 +87,8 @@ int main(int argc, char const *argv[]){
     getmaxyx(main_wind, row, column);
     int key = 0; char buf;
     keypad(main_wind, TRUE);
-    flag = true;
-    while(flag){
+    main_loop = true;
+    while(main_loop){
         if(full_text.size() == 0) full_text.push_back(nl);
         wclear(main_wind);
         for(int i=0; i < full_text.size(); i++){
@@ -162,7 +162,9 @@ int main(int argc, char const *argv[]){
             }
             send_msg(socket_push, m);
             zmq_close(socket_push);
-            flag = false;
+            wclear(main_wind);
+            mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
+            main_loop = false;
         }else{
             mute_text.lock();
             m.where_x = x;
@@ -209,8 +211,6 @@ int main(int argc, char const *argv[]){
             i_send = true;  
         }
     }
-    wclear(main_wind);
-    mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
     getch();
     endwin();
     cout<<"Exit"<<endl;
@@ -468,7 +468,9 @@ void* publisher_listener(void* args){
     Message m = recv_message(socket);
     switch(m.task){
         case DISCONNECT:
-            cout<<"Server down"<<endl;
+            mvwprintw(main_wind, getmaxy(main_wind)/2-2, getmaxx(main_wind)/2-1, "Server turned off\n");
+            mvwprintw(main_wind, getmaxy(main_wind)/2, getmaxx(main_wind)/2-1, "Press an button\n");
+            main_loop = false;
             break;
         case UPDATE_TEXT:
             if(i_send){

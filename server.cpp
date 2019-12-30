@@ -14,8 +14,8 @@ using namespace std;
 
 string addr_first_connect = "tcp://*:16776";
 string file_path = "./united.txt";
-int port_send_pull = 7523;
-int port_subscribe = 4040;
+int port_pull = 7523;
+int port_publisher = 4040;
 int time_wait = 10000;
 mutex mute_pr_state;
 bool pr_state = false;
@@ -216,21 +216,25 @@ bool write_to_file(){
 }
 
 int main(int argc, char* argv[]){
-    cout<<argv[1]<<endl;
-    if(argc==2){
-        file_path = argv[1];
-        load_from_file();
-    }else{
-        cout<<"./server /path/to/file"<<endl;
+    if(argc != 4){
+        cout<<"Wrong using!"<<endl;
+        cout<<"./server /path/to/file port_publicher port_pull"<<endl;
         return 0;
     }
+    file_path = argv[1];
+    load_from_file();
+    port_publisher = atoi(argv[2]);
+    port_pull = atoi(argv[3]);
+    cout<<"Loaded file :: "<<file_path<<endl;
+    cout<<"Port publisher :: "<<port_publisher<<endl;
+    cout<<"Port pull :: "<<port_pull<<endl;
 
     pthread_t inf_connect_listener, inf_pull_listener;
-    if(0>zmq_bind(main_pub_socket, ("tcp://*:"+to_string(port_subscribe)).c_str())){
+    if(0>zmq_bind(main_pub_socket, ("tcp://*:"+to_string(port_publisher)).c_str())){
         cout<<"Main socket :: "<<strerror(errno)<<endl;
         exit(1);
     }
-    if(0>zmq_bind(main_pull_socket, ("tcp://*:"+to_string(port_send_pull)).c_str())){
+    if(0>zmq_bind(main_pull_socket, ("tcp://*:"+to_string(port_pull)).c_str())){
         cout<<"Main pull socket :: "<<strerror(errno)<<endl;
         exit(1);
     }
@@ -249,6 +253,9 @@ int main(int argc, char* argv[]){
         getline(cin, text);
         if(text == "!/exit"){
             write_to_file();
+            Message m;
+            m.task = DISCONNECT;
+            send_message(main_pub_socket, m);
             flag = false;
         }
         if(text == "show"){
@@ -293,8 +300,9 @@ void* connecting_port_listening(void* args){
     r = on_start_recv(first_connect);
     if(r.name != 0){
         user_ip = r.name;
-        a.port_pub = port_subscribe;
-        a.port_push = port_send_pull;
+        a.port_pub = port_publisher;
+        a.port_push = port_pull
+    ;
         send_message(first_connect, a);
 
         mute_users.lock();
@@ -314,12 +322,14 @@ void* inf_listen_pull(void* args){
     pthread_t pthread;
     thread_data* sockets = (thread_data*) args;
     cout<<endl<<"Pull port start listening"<<endl;
-    zmq_bind(sockets->pull, ("tcp://*:"+to_string(port_send_pull)).c_str());
+    zmq_bind(sockets->pull, ("tcp://*:"+to_string(port_pull
+)).c_str());
     while(true){
         pthread_create(&pthread, NULL, pull_port_listener, sockets);
         pthread_join(pthread, NULL);
     }
-    zmq_unbind(sockets->pull, ("tcp://*:"+to_string(port_send_pull)).c_str());
+    zmq_unbind(sockets->pull, ("tcp://*:"+to_string(port_pull
+)).c_str());
     return NULL;
 }
 void* pull_port_listener(void* args){
