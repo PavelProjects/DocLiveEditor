@@ -46,8 +46,7 @@ void send_start_msg(void* socket, OnStartMessage r);
 Message recv_message(void* );
 OnStartMessage recv_start_message(void*);
 int size, length;
-bool first_start = true;
-bool main_loop = true;
+bool first_start = true, main_loop = true, safe_mode = false;
 
 void* inf_pub_listener(void*);
 void* publisher_listener(void*);
@@ -62,10 +61,20 @@ int main(int argc, char const *argv[]){
         getline(cin, server_addr);
         cout<<"You ip :: ";
         getline(cin, user_ip);
+        cout<<"Turn safe mode?(low speed)y/n :: ";
+        char c;
+        cin>>c;
         if(server_addr.length() > 0 && user_ip.length() >0){
             main_loop = false;
         }else{
             cout<<"Wrong input!"<<endl;
+        }
+        if(c == 'y'){
+            safe_mode = true;
+            cout<<"Safe mode on"<<endl;
+        }else{
+            safe_mode = false;
+            cout<<"Safe mode off"<<endl;
         }
     }
     if(!connect(context)){
@@ -94,9 +103,9 @@ int main(int argc, char const *argv[]){
         for(int i=0; i < full_text.size(); i++){
             for(int j=0; j < full_text.at(i).size(); j++){
                 buf = full_text.at(i).at(j);
-                if(strchr(RU, buf) || strchr(ENG, buf) || strchr(SYMB, buf)){
+                //if(strchr(RU, buf) || strchr(ENG, buf) || strchr(SYMB, buf || buf == ' ')){
                     wprintw(main_wind, "%c", buf);
-                }
+                //}
             }
         }
         wrefresh(main_wind);
@@ -162,8 +171,22 @@ int main(int argc, char const *argv[]){
             }
             send_msg(socket_push, m);
             zmq_close(socket_push);
+            wrefresh(main_wind);
+            bool lop = true;
+            while(lop){
+                wclear(main_wind);
+                mvwprintw(main_wind,row/2-1, column/2-strlen("Please wait"),"Please wait");
+                mvwprintw(main_wind,row/2, column/2-strlen("Messages left"),"Messages left %d", queue.size());
+                wrefresh(main_wind);
+                sleep(1);
+                queue_mute.lock();
+                if(queue.size() == 0){
+                    lop = false;
+                }
+                queue_mute.unlock();
+            }
             wclear(main_wind);
-            mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
+            mvwprintw(main_wind,row/2, column/2-strlen("Press any button"),"Press any button");
             main_loop = false;
         }else{
             mute_text.lock();
@@ -416,15 +439,18 @@ void* send_from_queue(void* args){
             zmq_ctx_destroy(context);
             exit(0);
         }else{
-            //status = waitpid(pid, 0, WNOHANG);
-            // if(status == 0){
-                // sleep(sent_time_wait);
-                // status = waitpid(pid, 0, WNOHANG);
-                // if(status == 0){
-                    // kill(pid, SIGKILL);
-                // }
-            // }
-            status = 1;
+            if(safe_mode){
+                status = waitpid(pid, 0, WNOHANG);
+                if(status == 0){
+                    sleep(sent_time_wait);
+                    status = waitpid(pid, 0, WNOHANG);
+                    if(status == 0){
+                        kill(pid, SIGKILL);
+                    }
+                }
+            }else{
+                status = 1;
+            }
         }
 
         if(status != 0 ){
