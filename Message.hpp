@@ -3,14 +3,9 @@
 #define CONNECT 0
 #define DISCONNECT -1
 #define UPDATE_TEXT 1
-#define ADD_CH 10
+#define FULL_TEXT 10
 #define INSERT_CH 11
 #define DELETE_CH 12
-#define ADD_EMPTY_LINE 13
-#define INSERT_EMPTY_LINE 14
-#define SPLIT_LINE_AND_INSERT 15
-#define DELETE_LINE 16
-#define FULL_TEXT 99
 
 
 class Message{

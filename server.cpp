@@ -5,10 +5,10 @@
 #include <pthread.h>
 #include <vector>
 #include <mutex>
-#include <iostream>
 #include <fstream>
 #include "zmq.h"
 #include "Message.hpp"
+#include "MyText.hpp"
 using namespace std;
 #define SAVE_TIME_WAIT 5
 
@@ -27,7 +27,7 @@ vector<string> users;
 mutex mute_pull;
 vector<Message> pull_messages;
 mutex mute_text;
-vector<string> full_text;
+Text full_text;
 
 void* context = zmq_ctx_new();
 void* main_pub_socket = zmq_socket(context, ZMQ_PUB);
@@ -86,13 +86,20 @@ void* send_text(void* args){
     send_message(socket_push, m);
     int prev = 0;
     for(int i = 0; i < full_text.size(); i++){
-        m.size = full_text.at(i).size();
+        m.size = full_text.at_st(i).size();
         memset(m.data, 0, CHAR_LEN);
         send_message(socket_push, m);
-        for(int j=1; j <= full_text.at(i).size() / CHAR_LEN + 1; j++){
-            memcpy(m.data, full_text.at(i).substr(prev, j*CHAR_LEN).c_str(),  full_text.at(i).substr(prev, j*CHAR_LEN).size());
+        for(int j=1; j <= full_text.at_st(i).size() / CHAR_LEN + 1; j++){
+            prev = 0;
+            if(j*CHAR_LEN < full_text.at_st(i).size()){
+                memcpy(m.data, full_text.at_st(i).substr(prev, j*CHAR_LEN).c_str(),  full_text.at_st(i).substr(prev, j*CHAR_LEN).size());
+                m.change = 'a';
+                prev = j*CHAR_LEN;
+            }else{
+                memcpy(m.data, full_text.at_st(i).substr(prev, full_text.at_st(i).size()).c_str(),  full_text.at_st(i).size() - prev);
+                m.change = 'e';
+            }
             send_message(socket_push, m);
-            prev = i*CHAR_LEN;
         }
     }
     mute_text.unlock();
@@ -102,118 +109,55 @@ void* send_text(void* args){
 
 void update_text(Message m){
     mute_text.lock();
-    int key = m.change;
-    int x = m.where_x;
-    int y = m.where_y;
-    if(full_text.size() == 0){
-        string line;
-        full_text.push_back(line);
-        m.wch = ADD_EMPTY_LINE;
-    }
-    if(m.wch == DELETE_CH){
-        if(full_text.at(y).size()>0){
-            full_text.at(y).erase(full_text.at(y).begin() + x);
-        }
-    }else if(m.wch == DELETE_LINE){
-        full_text.erase(full_text.begin()+y);
-    }else{
-        if(key == '\n'){
-        string n;
-        if(x == full_text.at(y).length()-1){
-            x = 0;
-            if(y == full_text.size()-1){
-                full_text.push_back(n);
-                m.wch = ADD_EMPTY_LINE;
+    switch(m.wch){
+        case DELETE_CH:
+            if(full_text.at_st(m.where_y).back() == '\n'){
+                if(full_text.at_st(m.where_y).length() > 1){
+                    if(m.where_x == 0){
+                        if(m.where_y != 0){
+                            full_text.append_with_prev(m.where_y);
+                        }
+                    }else{
+                        full_text.erase(m.where_y, m.where_x);
+                    }
+                }else{
+                    full_text.erase(m.where_y, m.where_x);
+                    if(m.where_y != 0){
+                        full_text.erase(m.where_y);
+                    }
+                }
             }else{
-                m.where_y = y;
-                full_text.insert(full_text.begin()+y, n);
-                m.wch = INSERT_EMPTY_LINE;
+                if(m.where_x == full_text.at_st(m.where_y).length()){
+                    if(full_text.at_st(m.where_y).length() >= 1){
+                        full_text.pop_back_c(m.where_y);
+                    }else if(full_text.at_st(m.where_y).length() == 0){
+                        if(m.where_y != 0){
+                            full_text.erase(m.where_y);
+                        }
+                    }
+                }else if(m.where_x >= 0){
+                    if(m.where_x == 0){
+                        if(m.where_y != 0){
+                            full_text.append_with_prev(m.where_y);
+                        }
+                    }else{
+                        full_text.erase(m.where_y, m.where_x-1);
+                    }
+                }
             }
-        }else{
-            m.where_x = x;
-            m.where_y = y;
-            m.change = key;
-            n = full_text.at(y).substr(0, x);
-            full_text.at(y) = full_text.at(y).substr(x, full_text.at(y).length());
-            n.push_back(key);
-            full_text.insert(full_text.begin() + y, n);
-            m.wch = SPLIT_LINE_AND_INSERT;
-            x = 0;
-        }
-        }else{
-        if(x >= full_text.at(y).length()-1){
-            if(full_text.at(y).back() != 10){
-                m.where_y = y;
-                m.change = key;
-                full_text.at(y).push_back(key);
-                m.wch = ADD_CH;
-            }else{ 
-                m.where_y = y;
-                m.where_x = 0;
-                m.change = key;
-                full_text.at(y).insert(full_text.at(y).end() - 1, key);
-                m.wch = INSERT_CH;
-            }
-        }else{
-            m.where_y = y;
-            m.where_x = x;
-            m.change = key;
-            full_text.at(y).insert(full_text.at(y).begin() + x, key);
-            m.wch = INSERT_CH;
-        }
-        }
+            break;
+        case INSERT_CH:
+            full_text.insert(m.where_y, m.where_x, m.change);
+            break;
     }
     cout<<"Text Update"<<endl;
     for(int i=0; i< full_text.size(); i++){
-        cout<<full_text.at(i);
+        cout<<full_text.at_st(i);
     }
     cout<<endl<<"--------------------"<<endl;
     mute_text.unlock();
 }
 
-void load_from_file(){
-    mute_text.lock();
-    ifstream file(file_path, ios::in|ios::binary|ios::ate);
-    if(file.is_open()){
-        string n;
-        full_text.push_back(n);
-        int size = file.tellg();
-        char* lod = new char [size];
-        file.seekg (0, ios::beg);
-        file.read (lod, size);
-        file.close();
-        cout<<"Loaded"<<endl;
-        for(int i=0; i < size; i++){
-            full_text.back().push_back(lod[i]);
-            if((lod[i] == '\n' || lod[i] == '.') && i+1 < size){ 
-                full_text.push_back(n);
-            }
-        }
-        delete[] lod;
-    }else{
-        cout<<"Can't open file!"<<endl;
-    }
-    mute_text.unlock();
-}
-
-bool write_to_file(){
-    ofstream file;
-    file.open(file_path);
-    if(file.is_open()){
-        mute_text.lock();
-        for(int i = 0; i< full_text.size(); i++){
-            file<<full_text.at(i);
-        }
-        mute_text.unlock();
-        file<<'\0';
-        file.close();
-        return true;
-    }else{
-        cout<<"Can't open file for write!"<<endl;
-        return false;
-    }
-    return false;
-}
 
 int main(int argc, char* argv[]){
     if(argc != 4){
@@ -222,7 +166,9 @@ int main(int argc, char* argv[]){
         return 0;
     }
     file_path = argv[1];
-    load_from_file();
+    if(!full_text.loadFromFile(file_path)){
+        return 0;
+    }
     port_publisher = atoi(argv[2]);
     port_pull = atoi(argv[3]);
     cout<<"Loaded file :: "<<file_path<<endl;
@@ -252,7 +198,7 @@ int main(int argc, char* argv[]){
     while(flag){
         getline(cin, text);
         if(text == "!/exit"){
-            write_to_file();
+            full_text.writeToFile(file_path);
             Message m;
             m.task = DISCONNECT;
             send_message(main_pub_socket, m);
@@ -260,12 +206,12 @@ int main(int argc, char* argv[]){
         }
         if(text == "show"){
             for(int i = 0; i< full_text.size(); i++){
-                cout<<full_text.at(i);
+                cout<<full_text.at_st(i);
             }
             cout<<endl;
         }
         if(text == "save"){
-            write_to_file();
+            full_text.writeToFile(file_path);
         }
     }
 
@@ -353,7 +299,7 @@ void* pull_port_listener(void* args){
 void* wait_and_save(void* args){
     sleep(SAVE_TIME_WAIT);
     cout<<"---saved---"<<endl;
-    write_to_file();
+    full_text.writeToFile(file_path);
     mute_save_state.lock();
     save_state = false;
     mute_save_state.unlock();

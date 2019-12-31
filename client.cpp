@@ -10,13 +10,14 @@
 #include <mutex>
 #include "Message.hpp"
 #include "zmq.h"
+#include "MyText.hpp"
 using namespace std;
 #define ctrl(x)           ((x) & 0x1f)
-#define QUIT_CTRL "ctrl+o :: quit"
-
-char ENG [] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-char RU [] = "АБВГДЭЕЖЗЫИКЛМНОПРСТУФХЦЧШЩЬЪЮЯЁaбвгдеёжзыиклмнопрстуфхцчшщьъюяё";
-char SYMB [] = "!@#$%^&*()_+?><:{}|~`\?\"'";
+#define QUIT_CTRL "ctrl+x :: quit"
+#define SAVE_CTRL "ctrl+o :: save copy"
+#define BLACK_ON_WHITE 1
+#define RED_ON_WHITE 2
+#define offset 2
 
 string user_ip;
 char file_name[20];
@@ -32,8 +33,7 @@ vector<Message> queue;
 mutex mute_send_flag;
 bool send_working = false;
 mutex mute_text;
-vector<string> full_text;
-bool i_send = false;
+bool i_send = false, saved = false;
 
 void* context = zmq_ctx_new();
 void* publisher = zmq_socket(context, ZMQ_SUB);
@@ -47,6 +47,7 @@ Message recv_message(void* );
 OnStartMessage recv_start_message(void*);
 int size, length;
 bool first_start = true, main_loop = true, safe_mode = false;
+Text full_text;
 
 void* inf_pub_listener(void*);
 void* publisher_listener(void*);
@@ -56,78 +57,89 @@ void add_to_queue(Message);
 void add_changes(Message m);
 
 int main(int argc, char const *argv[]){
-    while(main_loop){
-        cout<<"Server address :: ";
-        getline(cin, server_addr);
-        cout<<"You ip :: ";
-        getline(cin, user_ip);
-        cout<<"Turn safe mode?(low speed)y/n :: ";
-        char c;
-        cin>>c;
-        if(server_addr.length() > 0 && user_ip.length() >0){
-            main_loop = false;
-        }else{
-            cout<<"Wrong input!"<<endl;
-        }
-        if(c == 'y'){
-            safe_mode = true;
-            cout<<"Safe mode on"<<endl;
-        }else{
-            safe_mode = false;
-            cout<<"Safe mode off"<<endl;
-        }
-    }
+    // while(main_loop){
+        // cout<<"Server address :: ";
+        // getline(cin, server_addr);
+        // cout<<"You ip :: ";
+        // getline(cin, user_ip);
+        // cout<<"Turn safe mode?(low speed)y/n :: ";
+        // char c;
+        // cin>>c;
+        // if(server_addr.length() > 0 && user_ip.length() >0){
+            // main_loop = false;
+        // }else{
+            // cout<<"Wrong input!"<<endl;
+        // }
+        // if(c == 'y'){
+            // safe_mode = true;
+            // cout<<"Safe mode on"<<endl;
+        // }else{
+            // safe_mode = false;
+            // cout<<"Safe mode off"<<endl;
+        // }
+    // }
+    server_addr = user_ip = "localhost"; safe_mode = false;
     if(!connect(context)){
         cout<<"Can't connect to server"<<endl;
         return 0;
     }
-   
+
     pthread_t pub_thr;
     pthread_create(&pub_thr, NULL, inf_pub_listener, publisher);
     pthread_detach(pub_thr);
- 
-    main_wind = initscr(); 
+    
+    main_wind = initscr();
+    start_color();
+    init_pair(BLACK_ON_WHITE, COLOR_BLACK, COLOR_WHITE); 
+    init_pair(RED_ON_WHITE, COLOR_RED, COLOR_WHITE);
     noecho();  
-
     Message m;
     string nl;
     m.wch = 0;
     int x = 0, y = 0, max_x = 0, row, column;
     getmaxyx(main_wind, row, column);
-    int key = 0; char buf;
+    int key = 0;
     keypad(main_wind, TRUE);
-    main_loop = true;
+    main_loop = true; 
     while(main_loop){
-        if(full_text.size() == 0) full_text.push_back(nl);
         wclear(main_wind);
-        for(int i=0; i < full_text.size(); i++){
-            for(int j=0; j < full_text.at(i).size(); j++){
-                buf = full_text.at(i).at(j);
-                //if(strchr(RU, buf) || strchr(ENG, buf) || strchr(SYMB, buf || buf == ' ')){
-                    wprintw(main_wind, "%c", buf);
-                //}
-            }
+        for(int i=0; i<full_text.size(); i++){
+            mvwprintw(main_wind, i, offset, "%s", full_text.at_st(i).c_str());
         }
+        for(int i=0; i<full_text.size(); i++) mvwprintw(main_wind, i, 0, "%d|", i+1);
         wrefresh(main_wind);
+        attron(COLOR_PAIR(BLACK_ON_WHITE));
         mvwprintw(main_wind, row-1, column/2-strlen(QUIT_CTRL), QUIT_CTRL);
+        mvwprintw(main_wind, row-1, column-strlen(SAVE_CTRL), SAVE_CTRL);
         mvwprintw(main_wind, row-1, 0, "%s", file_name);
-        move(y, x);
+        if(saved){
+            mvwprintw(main_wind, row-1, strlen(file_name)+1, "saved");
+        }else{
+            mvwprintw(main_wind, row-1, strlen(file_name)+1, "not saved");
+        }
+        attroff(COLOR_PAIR(BLACK_ON_WHITE));
+        //mvwprintw(main_wind, row-1, 0, "[%d %d] %d %d", x, y, full_text.at_st(y).length(), full_text.size());
+        move(y, x + offset);
         key = wgetch(main_wind);
         if(key == KEY_RIGHT || key == KEY_LEFT || key == KEY_UP || key == KEY_DOWN || key == KEY_BACKSPACE){
 		    switch(key){
             	case KEY_UP:
 		    		if(y-1 >= 0){
                         y--;
-                        if(x>=full_text.at(y).length()){
-                            x = full_text.at(y).length()-1;
+                        if(x>=full_text.at_st(y).length()){
+                            x = full_text.at_st(y).length()-1;
                         }
                     }
 		    		break;
 		    	case KEY_DOWN:
 		    		if(y+1 < full_text.size()){
                         y++;
-                        if(x>=full_text.at(y).length() || full_text.at(y).length()-1 >= 0){
-                            x = full_text.at(y).length()-1;
+                        if(x>=full_text.at_st(y).length()){
+                            if(full_text.at_st(y).back() == '\n'){
+                                x = full_text.at_st(y).length()-1;
+                            }else{
+                                x = full_text.at_st(y).length();
+                            }
                         }
                     }
 		    		break;
@@ -135,35 +147,82 @@ int main(int argc, char const *argv[]){
 		    		if(x-1 >= 0) x--;
 		    		break;
 		    	case KEY_RIGHT:
-                    if(full_text.at(y).back() == 10){
-		    		    if(full_text.at(y).length()-1 >= x+1) x++;
+                    if(full_text.at_st(y).back() == '\n'){
+                        if(x+1 <= full_text.at_st(y).length()-1) x++;
                     }else{
-                        if(full_text.at(y).length() >= x+1) x++;
+                        if(x+1 <= full_text.at_st(y).length()) x++;
                     }
 		    		break;
                 case KEY_BACKSPACE:
-                    if(x-1 >= 0){
-                        x--;
-                        m.where_x = x;
-                        m.where_y = y;
-                        full_text.at(y).erase(full_text.at(y).begin() + x);
-                        m.wch = DELETE_CH;
-                    }else if(x == 0){
-                        if(y-1 >= 0){
-                            m.where_x = x;
-                            m.where_y = y;
-                            full_text.erase(full_text.begin()+y);
-                            y--;
-                            x = full_text.at(y).length()-1;
-                            m.wch = DELETE_LINE;
+                    saved = false;
+                    mute_text.lock();
+                    m.where_x = x;
+                    m.where_y = y;
+                    if(full_text.at_st(y).back() == '\n'){
+                        if(full_text.at_st(y).length() > 1){
+                            if(x == 0){
+                                if(y != 0){
+                                    full_text.append_with_prev(y);
+                                    y--;
+                                    x=full_text.at_st(y).length()-1;
+                                }
+                            }else{
+                                full_text.erase(y, x);
+                                if(x>0) x--;
+                            }
+                        }else{
+                            full_text.erase(y, x);
+                            if(y != 0){
+                                full_text.erase(y);
+                                y--;
+                                if(full_text.at_st(y).back() == '\n'){
+                                    x = full_text.at_st(y).length()-1;
+                                }else{
+                                    x = full_text.at_st(y).length();
+                                }
+                            }else{
+                                if(x > 0)x--;
+                            }
+                        }
+                    }else{
+                        if(x == full_text.at_st(y).length()){
+                            if(full_text.at_st(y).length() >= 1){
+                                full_text.pop_back_c(y);
+                                x--;
+                            }else if(full_text.at_st(y).length() == 0){
+                                if(y != 0){
+                                    full_text.erase(y);
+                                    y--;
+                                    if(full_text.at_st(y).back() == '\n'){
+                                        x = full_text.at_st(y).length()-1;
+                                    }else{
+                                        x = full_text.at_st(y).length();
+                                    }
+                                }else{
+                                    x = 0;
+                                }
+                            }
+                        }else if(x >= 0){
+                            if(x == 0){
+                                if(y != 0){
+                                    full_text.append_with_prev(y);
+                                    y--;
+                                    x=full_text.at_st(y).length();
+                                }
+                            }else{
+                                full_text.erase(y, x-1);
+                                x--;
+                            }
                         }
                     }
+                    mute_text.unlock();
                     m.task = UPDATE_TEXT;
+                    m.wch = DELETE_CH;
                     add_to_queue( m);
-                    i_send = true;  
+                    i_send = true;
                     break;                 
             }
-        }else if(key == ctrl('o')){
+        }else if(key == ctrl('x')){
             m.task = DISCONNECT;
             void* socket_push = zmq_socket(context, ZMQ_PUSH);
             if(0>zmq_connect(socket_push, (base_addr+server_addr+":"+to_string(push_port)).c_str())){
@@ -171,72 +230,37 @@ int main(int argc, char const *argv[]){
             }
             send_msg(socket_push, m);
             zmq_close(socket_push);
-            wrefresh(main_wind);
-            bool lop = true;
-            while(lop){
-                wclear(main_wind);
-                mvwprintw(main_wind,row/2-1, column/2-strlen("Please wait"),"Please wait");
-                mvwprintw(main_wind,row/2, column/2-strlen("Messages left"),"Messages left %d", queue.size());
-                wrefresh(main_wind);
-                sleep(1);
-                queue_mute.lock();
-                if(queue.size() == 0){
-                    lop = false;
-                }
-                queue_mute.unlock();
-            }
             wclear(main_wind);
-            mvwprintw(main_wind,row/2, column/2-strlen("Press any button"),"Press any button");
+            mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
             main_loop = false;
+        }else if(key == ctrl('o')){
+            string fn(file_name);
+            full_text.writeToFile(fn.append("#copy"));
+            saved = true;
         }else{
             mute_text.lock();
             m.where_x = x;
             m.where_y = y;
             m.change = key;
-            m.wch = ADD_CH;
-            if(full_text.size() == 0){
-                string line;
-                full_text.push_back(line);
-            }
+            m.wch = INSERT_CH;
+            m.task = UPDATE_TEXT;
+            add_to_queue(m);
+            saved = false;
+            full_text.insert(y, x, key);
             if(key == '\n'){
-                string n;
-                if(x == full_text.at(y).length()-1){
-                    if(y == full_text.size()-1){
-                        full_text.push_back(n);
-                    }else{
-                        full_text.insert(full_text.begin()+y, n);
-                    }
-                }else{
-                    m.change = key;
-                    n = full_text.at(y).substr(0, x);
-                    full_text.at(y) = full_text.at(y).substr(x, full_text.at(y).length());
-                    n.push_back(key);
-                    full_text.insert(full_text.begin() + y, n);
-                    if(key == '\n') x = 0;
-                }
-            }else{
-                if(x >= full_text.at(y).length()-1){
-                    if(full_text.at(y).back() != 10){
-                        full_text.at(y).push_back(key);
-                    }else{ 
-                        m.change = key;
-                        full_text.at(y).insert(full_text.at(y).end() - 1, key);
-                    }
-                }else{
-                    m.change = key;
-                    full_text.at(y).insert(full_text.at(y).begin() + x, key);
-                }
+                y++;
+                x = 0;
+            } else{
                 x++;
             }
             mute_text.unlock();
-            m.task = UPDATE_TEXT;
-            add_to_queue( m);
             i_send = true;  
         }
     }
     getch();
     endwin();
     cout<<"Exit"<<endl;
+    exit(1);
     zmq_close(publisher);
     zmq_ctx_destroy(context);
     return 0;
@@ -279,18 +303,26 @@ bool connect(void* context){
         exit(1);
     }else{
         Message m = recv_message(socket_pill);
-        memcpy(file_name, m.data, strlen(m.data));
-        cout<<"Loading file "<<file_name<<endl;
-        int size = m.size, length;
-        for(int i=0; i<size ; i++){
-            m = recv_message(socket_pill);
-            length = m.size / CHAR_LEN + 1;
-            string n;
-            full_text.push_back(n);
-            for(int j=1; j<=length; j++){
+        if(m.task == FULL_TEXT){
+            memcpy(file_name, m.data, strlen(m.data));
+            cout<<"Loading file "<<file_name<<endl;
+            int size = m.size, length;
+            for(int i=0; i<size ; i++){
                 m = recv_message(socket_pill);
-                full_text.at(i).append(m.data);
+                length = m.size / CHAR_LEN + 1;
+                string n;
+                for(int j=0; j<length; j++){
+                    m = recv_message(socket_pill);
+                    n.append(m.data);
+                    if(m.change == 'e'){
+                        full_text.push_back(n);
+                        n.clear();
+                    }
+                }
+                if(full_text.size() > size) full_text.pop_back_string();
             }
+        }else{
+            cout<<"Loading text refused by server"<<endl;
         }
         cout<<"Done"<<endl;
     }
@@ -333,75 +365,59 @@ void send_start_msg(void* socket, OnStartMessage r){
     zmq_msg_send(&req, socket, 0);
     zmq_msg_close(&req);
 }
+
 void add_changes(Message m){
-    int key = m.change;
-    int x = m.where_x;
-    int y = m.where_y;
-    if(full_text.size() == 0){
-        string line;
-        full_text.push_back(line);
-        m.wch = ADD_EMPTY_LINE;
-    }
-    if(m.wch == DELETE_CH){
-        if(full_text.at(y).size()>0){
-            full_text.at(y).erase(full_text.at(y).begin() + x);
-        }
-    }else if(m.wch == DELETE_LINE){
-        full_text.erase(full_text.begin()+y);
-        wmove(main_wind, m.where_y - 1, full_text.at(m.where_y - 1).size() - 1);
-    }else{
-        if(key == '\n'){
-        string n;
-        if(x == full_text.at(y).length()-1){
-            x = 0;
-            if(y == full_text.size()-1){
-                full_text.push_back(n);
-                m.wch = ADD_EMPTY_LINE;
+    mute_text.lock();
+    switch(m.wch){
+        case DELETE_CH:
+            if(full_text.at_st(m.where_y).back() == '\n'){
+                if(full_text.at_st(m.where_y).length() > 1){
+                    if(m.where_x == 0){
+                        if(m.where_y != 0){
+                            full_text.append_with_prev(m.where_y);
+                        }
+                    }else{
+                        full_text.erase(m.where_y, m.where_x);
+                    }
+                }else{
+                    full_text.erase(m.where_y, m.where_x);
+                    if(m.where_y != 0){
+                        full_text.erase(m.where_y);
+                    }
+                }
             }else{
-                m.where_y = y;
-                full_text.insert(full_text.begin()+y, n);
-                m.wch = INSERT_EMPTY_LINE;
+                if(m.where_x == full_text.at_st(m.where_y).length()){
+                    if(full_text.at_st(m.where_y).length() >= 1){
+                        full_text.pop_back_c(m.where_y);
+                    }else if(full_text.at_st(m.where_y).length() == 0){
+                        if(m.where_y != 0){
+                            full_text.erase(m.where_y);
+                        }
+                    }
+                }else if(m.where_x >= 0){
+                    if(m.where_x == 0){
+                        if(m.where_y != 0){
+                            full_text.append_with_prev(m.where_y);
+                        }
+                    }else{
+                        full_text.erase(m.where_y, m.where_x-1);
+                    }
+                }
             }
-        }else{
-            m.where_x = x;
-            m.where_y = y;
-            m.change = key;
-            n = full_text.at(y).substr(0, x);
-            full_text.at(y) = full_text.at(y).substr(x, full_text.at(y).length());
-            n.push_back(key);
-            full_text.insert(full_text.begin() + y, n);
-            m.wch = SPLIT_LINE_AND_INSERT;
-            x = 0;
-        }
-        }else{
-        if(x >= full_text.at(y).length()-1){
-            if(full_text.at(y).back() != 10){
-                m.where_y = y;
-                m.change = key;
-                full_text.at(y).push_back(key);
-                m.wch = ADD_CH;
-            }else{ 
-                m.where_y = y;
-                m.where_x = 0;
-                m.change = key;
-                full_text.at(y).insert(full_text.at(y).end() - 1, key);
-                m.wch = INSERT_CH;
-            }
-        }else{
-            m.where_y = y;
-            m.where_x = x;
-            m.change = key;
-            full_text.at(y).insert(full_text.at(y).begin() + x, key);
-            m.wch = INSERT_CH;
-        }
-        }
+            break;
+        case INSERT_CH:
+            full_text.insert(m.where_y, m.where_x, m.change);
+            break;
     }
     wclear(main_wind);
-    for(int i=0; i < full_text.size(); i++){
-        wprintw(main_wind, "%s", full_text.at(i).c_str());
+    for(int i=0; i<full_text.size(); i++){
+        mvwprintw(main_wind, i, offset, "%s", full_text.at_st(i).c_str());
     }
-    wrefresh(main_wind);   
+    for(int i=0; i<full_text.size(); i++) mvwprintw(main_wind, i, 0, "%d|", i+1);
+    wrefresh(main_wind);
+    mute_text.unlock();
 }
+
 void add_to_queue(Message mes){
     queue_mute.lock();
     queue.push_back(mes);
@@ -492,10 +508,17 @@ void* inf_pub_listener(void* args){
 void* publisher_listener(void* args){
     void* socket = (void*) args;
     Message m = recv_message(socket);
+
     switch(m.task){
         case DISCONNECT:
-            mvwprintw(main_wind, getmaxy(main_wind)/2-2, getmaxx(main_wind)/2-1, "Server turned off\n");
-            mvwprintw(main_wind, getmaxy(main_wind)/2, getmaxx(main_wind)/2-1, "Press an button\n");
+            wclear(main_wind);
+            attron(COLOR_PAIR(RED_ON_WHITE));
+            mvwprintw(main_wind, getmaxy(main_wind)/2-2, getmaxx(main_wind)/2-1-strlen("Server turned off\n"), "Server turned off\n");
+            attroff(COLOR_PAIR(RED_ON_WHITE));
+            attron(COLOR_PAIR(BLACK_ON_WHITE));
+            mvwprintw(main_wind, getmaxy(main_wind)/2, getmaxx(main_wind)/2-1-strlen("Press any button\n"), "Press any button\n");
+            attroff(COLOR_PAIR(BLACK_ON_WHITE));
+            wrefresh(main_wind);
             main_loop = false;
             break;
         case UPDATE_TEXT:
@@ -510,3 +533,4 @@ void* publisher_listener(void* args){
     }
     return NULL;
 }
+

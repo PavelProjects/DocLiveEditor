@@ -10,6 +10,7 @@
         "utility": "cpp",
         "cerrno": "cpp",
         "typeinfo": "cpp",
-        "writetofile.c": "cpp"
+        "writetofile.c": "cpp",
+        "vector": "cpp"
     }
 }
