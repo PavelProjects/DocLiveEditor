@@ -7,7 +7,7 @@ using namespace std;
 
 char znak_prep[] = "!?.";
 
-class Text{
+class Text{ //добавить разбиение на строки по точкам, а не только по переносу строки
     private:
         vector<string> text;
     public:

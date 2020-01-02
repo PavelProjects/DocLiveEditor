@@ -15,6 +15,11 @@ using namespace std;
 #define ctrl(x)           ((x) & 0x1f)
 #define QUIT_CTRL "ctrl+x :: quit"
 #define SAVE_CTRL "ctrl+o :: save copy"
+#define SAVED "saved"
+#define NOT_SAVED "not_saved"
+#define USERS_CONNECTED "users connected: %d"
+#define LOST_CONNECTION "lost connection, attempts left: %d"
+
 #define BLACK_ON_WHITE 1
 #define RED_ON_WHITE 2
 #define offset 2
@@ -26,6 +31,7 @@ string base_addr = "tcp://";
 string server_addr;
 int time_wait = 5000;
 int push_port = 0;
+int user_connected = 1;
 double sent_time_wait = 1;
 WINDOW *main_wind;
 mutex queue_mute;
@@ -55,30 +61,30 @@ void* send(void*);
 void* send_from_queue(void*);
 void add_to_queue(Message);
 void add_changes(Message m);
+void print_menu();
 
 int main(int argc, char const *argv[]){
-    // while(main_loop){
-        // cout<<"Server address :: ";
-        // getline(cin, server_addr);
-        // cout<<"You ip :: ";
-        // getline(cin, user_ip);
-        // cout<<"Turn safe mode?(low speed)y/n :: ";
-        // char c;
-        // cin>>c;
-        // if(server_addr.length() > 0 && user_ip.length() >0){
-            // main_loop = false;
-        // }else{
-            // cout<<"Wrong input!"<<endl;
-        // }
-        // if(c == 'y'){
-            // safe_mode = true;
-            // cout<<"Safe mode on"<<endl;
-        // }else{
-            // safe_mode = false;
-            // cout<<"Safe mode off"<<endl;
-        // }
-    // }
-    server_addr = user_ip = "localhost"; safe_mode = false;
+    while(main_loop){
+        cout<<"Server address :: ";
+        getline(cin, server_addr);
+        cout<<"You ip :: ";
+        getline(cin, user_ip);
+        cout<<"Turn safe mode?(low speed)y/n :: ";
+        char c;
+        cin>>c;
+        if(server_addr.length() > 0 && user_ip.length() >0){
+            main_loop = false;
+        }else{
+            cout<<"Wrong input!"<<endl;
+        }
+        if(c == 'y'){
+            safe_mode = true;
+            cout<<"Safe mode on"<<endl;
+        }else{
+            safe_mode = false;
+            cout<<"Safe mode off"<<endl;
+        }
+    }
     if(!connect(context)){
         cout<<"Can't connect to server"<<endl;
         return 0;
@@ -102,22 +108,8 @@ int main(int argc, char const *argv[]){
     keypad(main_wind, TRUE);
     main_loop = true; 
     while(main_loop){
-        wclear(main_wind);
-        for(int i=0; i<full_text.size(); i++){
-            mvwprintw(main_wind, i, offset, "%s", full_text.at_st(i).c_str());
-        }
-        for(int i=0; i<full_text.size(); i++) mvwprintw(main_wind, i, 0, "%d|", i+1);
+        print_menu();
         wrefresh(main_wind);
-        attron(COLOR_PAIR(BLACK_ON_WHITE));
-        mvwprintw(main_wind, row-1, column/2-strlen(QUIT_CTRL), QUIT_CTRL);
-        mvwprintw(main_wind, row-1, column-strlen(SAVE_CTRL), SAVE_CTRL);
-        mvwprintw(main_wind, row-1, 0, "%s", file_name);
-        if(saved){
-            mvwprintw(main_wind, row-1, strlen(file_name)+1, "saved");
-        }else{
-            mvwprintw(main_wind, row-1, strlen(file_name)+1, "not saved");
-        }
-        attroff(COLOR_PAIR(BLACK_ON_WHITE));
         //mvwprintw(main_wind, row-1, 0, "[%d %d] %d %d", x, y, full_text.at_st(y).length(), full_text.size());
         move(y, x + offset);
         key = wgetch(main_wind);
@@ -220,8 +212,8 @@ int main(int argc, char const *argv[]){
                     m.wch = DELETE_CH;
                     add_to_queue( m);
                     i_send = true;
-                    break;                 
-            }
+                    break;   
+            }              
         }else if(key == ctrl('x')){
             m.task = DISCONNECT;
             void* socket_push = zmq_socket(context, ZMQ_PUSH);
@@ -230,14 +222,12 @@ int main(int argc, char const *argv[]){
             }
             send_msg(socket_push, m);
             zmq_close(socket_push);
-            wclear(main_wind);
-            mvwprintw(main_wind,row/2-1, column/2-strlen("Press any button"),"Press any button");
             main_loop = false;
         }else if(key == ctrl('o')){
             string fn(file_name);
             full_text.writeToFile(fn.append("#copy"));
             saved = true;
-        }else{
+        }else if(key > 31 && key < 127 || key == 10){
             mute_text.lock();
             m.where_x = x;
             m.where_y = y;
@@ -256,14 +246,50 @@ int main(int argc, char const *argv[]){
             mute_text.unlock();
             i_send = true;  
         }
+        move(y, x + offset);
     }
-    getch();
+    bool lop = true;
+    while(lop){
+        wclear(main_wind);
+        mvwprintw(main_wind,row/2-1, column/2-strlen("Please wait"),"Please wait");
+        mvwprintw(main_wind,row/2, column/2-strlen("Messages left"),"Messages left %d", queue.size());
+        wrefresh(main_wind);
+        sleep(1);
+        queue_mute.lock();
+        if(queue.size() == 0){
+            lop = false;
+        }
+        queue_mute.unlock();
+    }
+    wclear(main_wind);
     endwin();
     cout<<"Exit"<<endl;
     exit(1);
     zmq_close(publisher);
     zmq_ctx_destroy(context);
     return 0;
+}
+
+void print_menu(){
+    int row, column;
+    wclear(main_wind);
+    for(int i=0; i<full_text.size(); i++){
+        mvwprintw(main_wind, i, offset, "%s", full_text.at_st(i).c_str());
+    }
+    for(int i=0; i<full_text.size(); i++) mvwprintw(main_wind, i, 0, "%d|", i+1);
+    getmaxyx(main_wind, row, column);
+    attron(COLOR_PAIR(BLACK_ON_WHITE));
+    mvwprintw(main_wind, row-1, column-strlen(QUIT_CTRL), QUIT_CTRL);
+    mvwprintw(main_wind, row-1, column-strlen(QUIT_CTRL)-strlen(USERS_CONNECTED) -2, USERS_CONNECTED, user_connected);
+    mvwprintw(main_wind, row-1, 0, "%s", file_name);
+    if(saved){
+        mvwprintw(main_wind, row-1, strlen(file_name)+1, SAVED);
+        mvwprintw(main_wind, row-1,  strlen(file_name)+strlen(SAVED)+2, SAVE_CTRL);
+    }else{
+        mvwprintw(main_wind, row-1, strlen(file_name)+1, NOT_SAVED);
+        mvwprintw(main_wind, row-1,  strlen(file_name)+strlen(NOT_SAVED)+2, SAVE_CTRL);
+    }
+    attroff(COLOR_PAIR(BLACK_ON_WHITE));
 }
 
 bool connect(void* context){
@@ -283,6 +309,7 @@ bool connect(void* context){
         return false;
     }
     cout<<"pub="<<a.port_pub<<"::"<<"push="<<a.port_push<<endl;
+    user_connected = a.users;
     if(0>zmq_connect(publisher, (base_addr+server_addr+":"+to_string(a.port_pub)).c_str())){
         cout<<"Publisher connect :: "<<strerror(errno)<<endl;
         exit(1);
@@ -331,7 +358,6 @@ bool connect(void* context){
     sleep(1);
     return true;
 }
-
 
 Message recv_message(void* socket){
     zmq_msg_t ans;
@@ -409,13 +435,8 @@ void add_changes(Message m){
             full_text.insert(m.where_y, m.where_x, m.change);
             break;
     }
-    wclear(main_wind);
-    for(int i=0; i<full_text.size(); i++){
-        mvwprintw(main_wind, i, offset, "%s", full_text.at_st(i).c_str());
-    }
-    for(int i=0; i<full_text.size(); i++) mvwprintw(main_wind, i, 0, "%d|", i+1);
-    wrefresh(main_wind);
     mute_text.unlock();
+    print_menu();
 }
 
 void add_to_queue(Message mes){
@@ -458,7 +479,7 @@ void* send_from_queue(void* args){
             if(safe_mode){
                 status = waitpid(pid, 0, WNOHANG);
                 if(status == 0){
-                    sleep(sent_time_wait);
+                    sleep(1);
                     status = waitpid(pid, 0, WNOHANG);
                     if(status == 0){
                         kill(pid, SIGKILL);
@@ -470,6 +491,9 @@ void* send_from_queue(void* args){
         }
 
         if(status != 0 ){
+            if(retr<20){
+                print_menu();
+            }
             queue_mute.lock();
             queue.erase(queue.begin());
             queue_mute.unlock();
@@ -479,6 +503,11 @@ void* send_from_queue(void* args){
             retr = 20;
         }else{
             retr--;
+            wclear(main_wind);
+            attron(COLOR_PAIR(RED_ON_WHITE));
+            mvwprintw(main_wind, getmaxy(main_wind)/2, getmaxx(main_wind)/2 - strlen(LOST_CONNECTION)/2, LOST_CONNECTION, retr);
+            attroff(COLOR_PAIR(RED_ON_WHITE));
+            wrefresh(main_wind);
         }
         queue_mute.lock();
         if(queue.size() == 0){
@@ -486,6 +515,9 @@ void* send_from_queue(void* args){
         }
         queue_mute.unlock();
         if(retr == 0){
+            wclear(main_wind);
+            echo();
+            endwin();
             flag = false;
             kill(pid, SIGKILL);
             cout<<"Lost connection with server"<<endl;
@@ -529,6 +561,16 @@ void* publisher_listener(void* args){
             }else{
                 add_changes(m);
             }
+            break;
+        case USER_CONNECTED:
+            user_connected++;
+            print_menu();
+            wrefresh(main_wind);
+            break;
+        case USER_DISCONNECTED:
+            user_connected--;
+            print_menu();
+            wrefresh(main_wind);
             break;
     }
     return NULL;

@@ -6,6 +6,8 @@
 #define FULL_TEXT 10
 #define INSERT_CH 11
 #define DELETE_CH 12
+#define USER_CONNECTED 31
+#define USER_DISCONNECTED 32
 
 
 class Message{
@@ -28,7 +30,7 @@ class OnStartMessage{
         int port_pub;
         int status;
         int port_push;
-
+        int users;
 };
 
 typedef struct thread_data{

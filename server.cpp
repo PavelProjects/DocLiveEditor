@@ -6,6 +6,7 @@
 #include <vector>
 #include <mutex>
 #include <fstream>
+#include <sys/wait.h>
 #include "zmq.h"
 #include "Message.hpp"
 #include "MyText.hpp"
@@ -239,6 +240,7 @@ void* connecting_port_listening(void* args){
         cout<<"First connect :: "<<strerror(errno)<<endl;
         exit(1);
     }
+    
     string user_ip;
 
     zmq_msg_t req, ans;
@@ -246,18 +248,21 @@ void* connecting_port_listening(void* args){
     r = on_start_recv(first_connect);
     if(r.name != 0){
         user_ip = r.name;
-        a.port_pub = port_publisher;
-        a.port_push = port_pull
-    ;
-        send_message(first_connect, a);
-
         mute_users.lock();
         users.push_back(user_ip);
         mute_users.unlock();
+        a.port_pub = port_publisher;
+        a.port_push = port_pull;
+        a.users = users.size();
+        send_message(first_connect, a);
+
         cout<<"New user connected"<<endl;
         for(int i=0; i<users.size(); i++){
             cout<<i<<"::"<<users.at(i)<<endl;
         }
+        Message m;
+        m.task = USER_CONNECTED;
+        send_message(main_pub_socket, m);
     }
     zmq_unbind(first_connect, addr_first_connect.c_str());
     zmq_close(first_connect);
@@ -320,6 +325,8 @@ void* process_message(void* args){
                     if(users.at(i) == m.from) users.erase(users.begin() + i);
                 }
                 mute_users.unlock();
+                m.task = USER_DISCONNECTED;
+                send_message(main_pub_socket, m);
                 break;
             case UPDATE_TEXT:{
                 update_text(m);
