@@ -290,6 +290,7 @@ void print_menu(){
         mvwprintw(main_wind, row-1,  strlen(file_name)+strlen(NOT_SAVED)+2, SAVE_CTRL);
     }
     attroff(COLOR_PAIR(BLACK_ON_WHITE));
+    wrefresh(main_wind);
 }
 
 bool connect(void* context){
