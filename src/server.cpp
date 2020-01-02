@@ -273,8 +273,7 @@ void* inf_listen_pull(void* args){
     pthread_t pthread;
     thread_data* sockets = (thread_data*) args;
     cout<<endl<<"Pull port start listening"<<endl;
-    zmq_bind(sockets->pull, ("tcp://*:"+to_string(port_pull
-)).c_str());
+    zmq_bind(sockets->pull, ("tcp://*:"+to_string(port_pull)).c_str());
     while(true){
         pthread_create(&pthread, NULL, pull_port_listener, sockets);
         pthread_join(pthread, NULL);
